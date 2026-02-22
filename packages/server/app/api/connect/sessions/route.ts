@@ -8,6 +8,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
 import { connectSessions } from '@/db/schema';
 import { resolveProvider } from '@/lib/providers';
+import { verifyApiKey } from '@/lib/auth';
+import { checkRateLimit } from '@/lib/rate-limit';
+import {
+  validateProviderKey,
+  validateConnectionId,
+  validateRedirectUri,
+} from '@/lib/validate';
 import {
   buildAuthorizationUrl,
   generateState,
@@ -17,14 +24,34 @@ import {
 } from '@/lib/oauth';
 
 export async function POST(request: NextRequest) {
+  // Auth check
+  const authError = verifyApiKey(request);
+  if (authError) return authError;
+
+  // Rate limit
+  const rateLimitError = checkRateLimit(request);
+  if (rateLimitError) return rateLimitError;
+
   try {
     const body = await request.json();
-    const { provider: providerKey, connectionId, redirectUri } = body;
 
-    // Validate required fields
+    // Validate inputs
+    const providerKey = validateProviderKey(body.provider);
+    const connectionId = validateConnectionId(body.connectionId);
+    const redirectUri = body.redirectUri
+      ? validateRedirectUri(body.redirectUri)
+      : null;
+
     if (!providerKey || !connectionId) {
       return NextResponse.json(
-        { error: 'Missing required fields: provider, connectionId' },
+        { error: 'Invalid or missing fields: provider, connectionId' },
+        { status: 400 },
+      );
+    }
+
+    if (body.redirectUri && redirectUri === null) {
+      return NextResponse.json(
+        { error: 'Invalid redirectUri' },
         { status: 400 },
       );
     }
@@ -33,7 +60,9 @@ export async function POST(request: NextRequest) {
     const resolved = await resolveProvider(providerKey);
     if (!resolved) {
       return NextResponse.json(
-        { error: `Provider "${providerKey}" is not configured or not enabled` },
+        {
+          error: `Provider "${providerKey}" is not configured or not enabled`,
+        },
         { status: 404 },
       );
     }
@@ -52,7 +81,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Build callback URL (our server's callback endpoint)
-    const callbackUrl = new URL('/api/connect/callback', request.url).toString();
+    const callbackUrl = new URL(
+      '/api/connect/callback',
+      request.url,
+    ).toString();
 
     // Build the authorization URL
     const authUrl = buildAuthorizationUrl({

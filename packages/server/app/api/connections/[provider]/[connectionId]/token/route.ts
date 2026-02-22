@@ -11,6 +11,9 @@ import { connections } from '@/db/schema';
 import { resolveProvider } from '@/lib/providers';
 import { decrypt, encrypt } from '@/lib/encryption';
 import { refreshAccessToken } from '@/lib/oauth';
+import { verifyApiKey } from '@/lib/auth';
+import { checkRateLimit, STRICT_LIMIT } from '@/lib/rate-limit';
+import { validateProviderKey, validateConnectionId } from '@/lib/validate';
 
 interface RouteParams {
   params: Promise<{
@@ -19,9 +22,26 @@ interface RouteParams {
   }>;
 }
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
+  // Auth check
+  const authError = verifyApiKey(request);
+  if (authError) return authError;
+
+  // Strict rate limit — this endpoint returns sensitive tokens
+  const rateLimitError = checkRateLimit(request, STRICT_LIMIT);
+  if (rateLimitError) return rateLimitError;
+
   try {
-    const { provider, connectionId } = await params;
+    const raw = await params;
+    const provider = validateProviderKey(raw.provider);
+    const connectionId = validateConnectionId(raw.connectionId);
+
+    if (!provider || !connectionId) {
+      return NextResponse.json(
+        { error: 'Invalid provider or connectionId' },
+        { status: 400 },
+      );
+    }
 
     const db = getDb();
     const [connection] = await db

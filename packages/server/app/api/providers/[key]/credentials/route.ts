@@ -10,6 +10,9 @@ import { isValidProvider } from '@openauth/providers';
 import { getDb } from '@/db';
 import { providerCredentials } from '@/db/schema';
 import { encrypt } from '@/lib/encryption';
+import { verifyApiKey } from '@/lib/auth';
+import { checkRateLimit, STRICT_LIMIT } from '@/lib/rate-limit';
+import { validateProviderKey, validateString } from '@/lib/validate';
 
 interface RouteParams {
   params: Promise<{
@@ -18,23 +21,43 @@ interface RouteParams {
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
-  try {
-    const { key } = await params;
-    const body = await request.json();
-    const { clientId, clientSecret, scopes } = body;
+  // Auth check
+  const authError = verifyApiKey(request);
+  if (authError) return authError;
 
-    // Validate provider key
+  // Strict rate limit — admin endpoint
+  const rateLimitError = checkRateLimit(request, STRICT_LIMIT);
+  if (rateLimitError) return rateLimitError;
+
+  try {
+    const raw = await params;
+    const key = validateProviderKey(raw.key);
+
+    if (!key) {
+      return NextResponse.json(
+        { error: 'Invalid provider key' },
+        { status: 400 },
+      );
+    }
+
+    // Validate provider key exists in configs
     if (!isValidProvider(key)) {
       return NextResponse.json(
-        { error: `Unknown provider: "${key}". Available providers can be found at GET /api/providers.` },
+        {
+          error: `Unknown provider: "${key}". Available providers can be found at GET /api/providers.`,
+        },
         { status: 404 },
       );
     }
 
-    // Validate required fields
+    const body = await request.json();
+    const clientId = validateString(body.clientId, 200);
+    const clientSecret = validateString(body.clientSecret, 200);
+    const scopes = body.scopes ? validateString(body.scopes, 500) : null;
+
     if (!clientId || !clientSecret) {
       return NextResponse.json(
-        { error: 'Missing required fields: clientId, clientSecret' },
+        { error: 'Missing or invalid fields: clientId, clientSecret' },
         { status: 400 },
       );
     }

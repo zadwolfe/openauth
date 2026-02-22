@@ -6,15 +6,23 @@
  * encrypts and stores them, then redirects to the app or shows a success page.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, lt } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { connectSessions, connections } from '@/db/schema';
 import { resolveProvider } from '@/lib/providers';
 import { exchangeCodeForTokens } from '@/lib/oauth';
 import { encrypt } from '@/lib/encryption';
+import { checkRateLimit, STRICT_LIMIT } from '@/lib/rate-limit';
 
 export async function GET(request: NextRequest) {
+  // Rate limit (strict — 10/min, no API key since providers call this)
+  const rateLimitError = checkRateLimit(request, STRICT_LIMIT);
+  if (rateLimitError) return rateLimitError;
+
   try {
+    // Clean up expired sessions (background, non-blocking)
+    cleanupExpiredSessions().catch(() => {});
+
     const { searchParams } = new URL(request.url);
     const code = searchParams.get('code');
     const state = searchParams.get('state');
@@ -182,4 +190,20 @@ function redirectWithError(
   errorUrl.searchParams.set('status', 'error');
   errorUrl.searchParams.set('error', error);
   return NextResponse.redirect(errorUrl.toString());
+}
+
+/**
+ * Clean up expired sessions to prevent database bloat.
+ * Runs as a background task on each callback hit.
+ */
+async function cleanupExpiredSessions() {
+  const db = getDb();
+  await db
+    .delete(connectSessions)
+    .where(
+      and(
+        eq(connectSessions.status, 'pending'),
+        lt(connectSessions.expiresAt, new Date()),
+      ),
+    );
 }

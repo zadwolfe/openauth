@@ -9,6 +9,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { connections } from '@/db/schema';
+import { verifyApiKey } from '@/lib/auth';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { validateProviderKey, validateConnectionId } from '@/lib/validate';
 
 interface RouteParams {
   params: Promise<{
@@ -17,9 +20,24 @@ interface RouteParams {
   }>;
 }
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
+  const authError = verifyApiKey(request);
+  if (authError) return authError;
+
+  const rateLimitError = checkRateLimit(request);
+  if (rateLimitError) return rateLimitError;
+
   try {
-    const { provider, connectionId } = await params;
+    const raw = await params;
+    const provider = validateProviderKey(raw.provider);
+    const connectionId = validateConnectionId(raw.connectionId);
+
+    if (!provider || !connectionId) {
+      return NextResponse.json(
+        { error: 'Invalid provider or connectionId' },
+        { status: 400 },
+      );
+    }
 
     const db = getDb();
     const [connection] = await db
@@ -67,9 +85,24 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const authError = verifyApiKey(request);
+  if (authError) return authError;
+
+  const rateLimitError = checkRateLimit(request);
+  if (rateLimitError) return rateLimitError;
+
   try {
-    const { provider, connectionId } = await params;
+    const raw = await params;
+    const provider = validateProviderKey(raw.provider);
+    const connectionId = validateConnectionId(raw.connectionId);
+
+    if (!provider || !connectionId) {
+      return NextResponse.json(
+        { error: 'Invalid provider or connectionId' },
+        { status: 400 },
+      );
+    }
 
     const db = getDb();
     const result = await db
