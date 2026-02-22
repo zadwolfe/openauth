@@ -1,0 +1,23 @@
+{
+  "name": "openauth",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "db:generate": "turbo db:generate --filter=@openauth/server",
+    "db:push": "turbo db:push --filter=@openauth/server",
+    "db:studio": "turbo db:studio --filter=@openauth/server"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "npm@10.8.0",
+  "engines": {
+    "node": ">=18"
+  }
+}

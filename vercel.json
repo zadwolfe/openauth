@@ -1,0 +1,12 @@
+{
+  "buildCommand": "cd packages/server && npm run build",
+  "outputDirectory": "packages/server/.next",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/packages/server/$1"
+    }
+  ]
+}
